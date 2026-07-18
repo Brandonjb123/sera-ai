@@ -107,7 +107,7 @@ async def upload_document(
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     
-    count, name = add_document(file_path)
+    count, name = await add_document(file_path)
     return {"message": f"Dokumen '{name}' berhasil ditambahkan", "total": count}
 
 @app.delete("/admin/documents/clear")
@@ -133,7 +133,7 @@ async def search_documents(q: str):
 @app.post("/chat")
 async def chat(request: ChatRequest):
     """Chat dengan Sera AI menggunakan RAG."""
-    rag_results = search(request.message)
+    rag_results = await search(request.message)
     
     if rag_results:
         context = "\n\n".join([r["document"] for r in rag_results])

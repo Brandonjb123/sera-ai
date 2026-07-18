@@ -10,6 +10,8 @@ import PyPDF2
 import chromadb
 from chromadb.config import Settings
 from embeddings import encode
+import asyncio
+
 
 # Inisialisasi ChromaDB — folder di /app/data (persisten via Railway Volume)
 CHROMA_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "chroma_db")
@@ -53,7 +55,7 @@ def extract_text_from_pdf(file_path):
             text += page_text + "\n"
     return text
 
-def add_document(file_path):
+async def add_document(file_path):
     """Tambahkan dokumen ke ChromaDB (dan update TF-IDF untuk fallback)."""
     global documents, doc_names, vectorizer, doc_vectors
 
@@ -77,7 +79,7 @@ def add_document(file_path):
     save_data()
 
     # Generate embedding untuk ChromaDB
-    embedding = encode(text)
+    embedding = await asyncio.to_thread(encode, text)
 
     # Simpan ke ChromaDB
     doc_id = str(len(doc_names))
@@ -90,9 +92,9 @@ def add_document(file_path):
 
     return len(doc_names), file_name
 
-def search(query, n_results=3):
+async def search(query, n_results=3):
     """Cari dokumen paling relevan menggunakan embedding ChromaDB."""
-    query_embedding = encode(query)
+    query_embedding = await asyncio.to_thread(encode, query)
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=n_results
