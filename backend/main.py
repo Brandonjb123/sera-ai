@@ -35,7 +35,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://sera-ai-two.vercel.app"],
+    allow_origins=[
+    "https://sera-ai-two.vercel.app",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://127.0.0.1:5500"
+],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,6 +87,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class ChatRequest(BaseModel):
     message: str
+    client_id: str = None 
 
 # ============================================================
 # ROUTES
@@ -133,6 +139,16 @@ async def search_documents(q: str):
 @app.post("/chat")
 async def chat(request: ChatRequest):
     """Chat dengan Sera AI menggunakan RAG."""
+    if request.client_id:
+        from models import SessionLocal, WidgetClient
+        db = SessionLocal()
+        try:
+            client = db.query(WidgetClient).filter(WidgetClient.client_id == request.client_id).first()
+            if not client or client.status != "active":
+                raise HTTPException(status_code=403, detail="Invalid or inactive client ID")
+        finally:
+            db.close()
+
     rag_results = await search(request.message)
     
     if rag_results:
