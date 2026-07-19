@@ -55,49 +55,57 @@ def extract_text_from_pdf(file_path):
             text += page_text + "\n"
     return text
 
-async def add_document(file_path):
-    """Tambahkan dokumen ke ChromaDB (dan update TF-IDF untuk fallback)."""
-    global documents, doc_names, vectorizer, doc_vectors
+async def add_document(file_path, client_id="sera-demo"):
+    print(f"[DEBUG] Mulai add_document, file={file_path}, client_id={client_id}")
+    try:
+        global documents, doc_names, vectorizer, doc_vectors
 
-    file_name = os.path.basename(file_path)
+        file_name = os.path.basename(file_path)
 
-    # Ekstrak teks
-    if file_path.endswith('.pdf'):
-        text = extract_text_from_pdf(file_path)
-    else:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            text = f.read()
+        # Ekstrak teks
+        if file_path.endswith('.pdf'):
+            text = extract_text_from_pdf(file_path)
+        else:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                text = f.read()
 
-    if not text.strip():
-        return 0, "Dokumen kosong"
+        if not text.strip():
+            print(f"[DEBUG] Dokumen kosong, return 0")
+            return 0, "Dokumen kosong"
 
-    # Update TF-IDF (untuk fallback, tidak dipakai di pencarian utama)
-    documents.append(text)
-    doc_names.append(file_name)
-    vectorizer = TfidfVectorizer()
-    doc_vectors = vectorizer.fit_transform(documents)
-    save_data()
+        # Update TF-IDF (untuk fallback, tidak dipakai di pencarian utama)
+        documents.append(text)
+        doc_names.append(file_name)
+        vectorizer = TfidfVectorizer()
+        doc_vectors = vectorizer.fit_transform(documents)
+        save_data()
 
-    # Generate embedding untuk ChromaDB
-    embedding = await asyncio.to_thread(encode, text)
+        # Generate embedding untuk ChromaDB
+        embedding = await asyncio.to_thread(encode, text)
+        print(f"[DEBUG] Berhasil generate embedding")
 
-    # Simpan ke ChromaDB
-    doc_id = str(len(doc_names))
-    collection.add(
-        ids=[doc_id],
-        embeddings=[embedding],
-        documents=[text],
-        metadatas=[{"source": file_name}]
-    )
+        # Simpan ke ChromaDB dengan metadata client_id
+        doc_id = str(len(doc_names))
+        collection.add(
+            ids=[doc_id],
+            embeddings=[embedding],
+            documents=[text],
+            metadatas=[{"source": file_name, "client_id": client_id}]
+        )
+        print(f"[DEBUG] Berhasil collection.add(), collection count sekarang: {collection.count()}")
 
-    return len(doc_names), file_name
+        return len(doc_names), file_name
+    except Exception as e:
+        print(f"[DEBUG] ERROR saat add_document: {repr(e)}")
+        raise
 
-async def search(query, n_results=3):
-    """Cari dokumen paling relevan menggunakan embedding ChromaDB."""
+async def search(query, client_id, n_results=3):
+    """Cari dokumen paling relevan menggunakan embedding ChromaDB, difilter per client_id."""
     query_embedding = await asyncio.to_thread(encode, query)
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=n_results
+        n_results=n_results,
+        where={"client_id": client_id}  # Filter hanya dokumen milik client ini
     )
     
     formatted_results = []
@@ -120,8 +128,10 @@ def clear_documents():
     if os.path.exists(DATA_FILE):
         os.remove(DATA_FILE)
     
-    # Hapus semua dari ChromaDB
-    collection.delete(ids=collection.get()['ids'])
+    # Hapus semua dari ChromaDB, tapi hanya jika ada dokumen
+    existing_ids = collection.get()['ids']
+    if existing_ids:
+        collection.delete(ids=existing_ids)
 
 def get_document_count():
     """Kembalikan jumlah dokumen yang tersimpan."""

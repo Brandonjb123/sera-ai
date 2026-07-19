@@ -1,7 +1,7 @@
 # ============================================================
 # SERA AI — Backend FastAPI (Fase 0 + Fase 1 + Fase 2 + Fase 3)
 # ============================================================
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, status
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, status, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -103,6 +103,7 @@ def health_check():
 @app.post("/admin/documents/upload")
 async def upload_document(
     file: UploadFile = File(...),
+    client_id: str = Form("sera-demo"),
     admin: str = Depends(verify_admin)
 ):
     """Upload dokumen PDF atau TXT (admin only)."""
@@ -113,7 +114,7 @@ async def upload_document(
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     
-    count, name = await add_document(file_path)
+    count, name = await add_document(file_path, client_id=client_id)
     return {"message": f"Dokumen '{name}' berhasil ditambahkan", "total": count}
 
 @app.delete("/admin/documents/clear")
@@ -149,7 +150,7 @@ async def chat(request: ChatRequest):
         finally:
             db.close()
 
-    rag_results = await search(request.message)
+    rag_results = await search(request.message, client_id=request.client_id)
     
     if rag_results:
         context = "\n\n".join([r["document"] for r in rag_results])
