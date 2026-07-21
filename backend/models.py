@@ -14,3 +14,6 @@ class WidgetClient(Base):
     client_id = Column(String, unique=True, index=True, nullable=False)
     allowed_domain = Column(String, nullable=False)
     status = Column(String, nullable=False, default="active")
+    # BYOK fields
+    llm_provider = Column(String, nullable=False, default="groq")  # "groq" atau "openai"
+    llm_api_key = Column(String, nullable=True)  # API key yang SUDAH DIENKRIPSI

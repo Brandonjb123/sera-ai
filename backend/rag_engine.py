@@ -99,14 +99,21 @@ async def add_document(file_path, client_id="sera-demo"):
         print(f"[DEBUG] ERROR saat add_document: {repr(e)}")
         raise
 
-async def search(query, client_id, n_results=3):
-    """Cari dokumen paling relevan menggunakan embedding ChromaDB, difilter per client_id."""
-    query_embedding = await asyncio.to_thread(encode, query)
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=n_results,
-        where={"client_id": client_id}  # Filter hanya dokumen milik client ini
-    )
+async def search(query, client_id=None, n_results=3):
+    """Cari dokumen paling relevan menggunakan embedding ChromaDB (non-blocking)."""
+    
+    def _search_sync():
+        query_embedding = encode(query)
+        query_kwargs = {
+            "query_embeddings": [query_embedding],
+            "n_results": n_results
+        }
+        if client_id:
+            query_kwargs["where"] = {"client_id": client_id}
+        return collection.query(**query_kwargs)
+    
+    # Jalankan di thread terpisah supaya tidak blokir event loop
+    results = await asyncio.to_thread(_search_sync)
     
     formatted_results = []
     for i in range(len(results['documents'][0])):
@@ -115,7 +122,6 @@ async def search(query, client_id, n_results=3):
             "source": results['metadatas'][0][i]['source'],
             "score": 1.0
         })
-    
     return formatted_results
 
 def clear_documents():

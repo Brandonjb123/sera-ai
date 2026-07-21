@@ -1,5 +1,5 @@
 # ============================================================
-# SERA AI — Backend FastAPI (Fase 0 + Fase 1 + Fase 2 + Fase 3)
+# SERA AI — Backend FastAPI (Fase 0 + Fase 1 + Fase 2 + Fase 3 + BYOK)
 # ============================================================
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, status, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,11 +36,11 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-    "https://sera-ai-two.vercel.app",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "http://127.0.0.1:5500"
-],
+        "https://sera-ai-two.vercel.app",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:5500"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,7 +54,6 @@ security = HTTPBearer()
 def verify_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Verifikasi token admin sederhana."""
     token = credentials.credentials
-    # Format token: base64(username:password)
     import base64
     try:
         decoded = base64.b64decode(token).decode("utf-8")
@@ -78,16 +77,21 @@ async def admin_login(username: str, password: str):
     raise HTTPException(status_code=401, detail="Username atau password salah")
 
 # ============================================================
-# IMPORT RAG ENGINE
+# IMPORT RAG ENGINE & ENCRYPTION
 # ============================================================
 from rag_engine import add_document, search, clear_documents, get_document_count
+from encryption import encrypt_api_key, decrypt_api_key
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class ChatRequest(BaseModel):
     message: str
-    client_id: str = None 
+    client_id: str = None
+
+class BYOKRequest(BaseModel):
+    llm_provider: str
+    llm_api_key: str
 
 # ============================================================
 # ROUTES
@@ -131,10 +135,32 @@ async def document_count(admin: str = Depends(verify_admin)):
     """Lihat jumlah dokumen yang tersimpan (admin only)."""
     return {"count": get_document_count()}
 
+@app.post("/admin/byok")
+async def save_byok_config(
+    request: BYOKRequest,
+    admin: str = Depends(verify_admin)
+):
+    """Simpan konfigurasi LLM provider + API key untuk client 'sera-demo'."""
+    from models import SessionLocal, WidgetClient
+    db = SessionLocal()
+    try:
+        client = db.query(WidgetClient).filter(WidgetClient.client_id == "sera-demo").first()
+        if not client:
+            raise HTTPException(status_code=404, detail="Client 'sera-demo' tidak ditemukan")
+        
+        encrypted_key = encrypt_api_key(request.llm_api_key)
+        client.llm_provider = request.llm_provider
+        client.llm_api_key = encrypted_key
+        db.commit()
+        
+        return {"message": "BYOK configuration saved successfully"}
+    finally:
+        db.close()
+
 @app.get("/search")
 async def search_documents(q: str):
     """Cari dokumen berdasarkan query."""
-    results = search(q)
+    results = await search(q)
     return {"query": q, "results": results}
 
 @app.post("/chat")
@@ -174,8 +200,38 @@ async def chat(request: ChatRequest):
         question. If you don't know the answer, suggest contacting admin 
         support."""
 
-    response = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+    # === BYOK: Ambil konfigurasi LLM client dari database ===
+    from llm_adapter import call_llm
+    
+    if request.client_id:
+        db = SessionLocal()
+        try:
+            client_config = db.query(WidgetClient).filter(
+                WidgetClient.client_id == request.client_id
+            ).first()
+        finally:
+            db.close()
+        
+        if client_config and client_config.llm_api_key:
+            # Client sudah setup BYOK — pakai API key mereka
+            provider = client_config.llm_provider or "groq"
+            api_key = decrypt_api_key(client_config.llm_api_key)
+            model = None  # Biarkan adapter pakai default
+        else:
+            # Fallback ke API key milik kita (groq_client)
+            provider = "groq"
+            api_key = os.getenv("GROQ_API_KEY")
+            model = "llama-3.3-70b-versatile"
+    else:
+        # Tidak ada client_id — pakai key sendiri
+        provider = "groq"
+        api_key = os.getenv("GROQ_API_KEY")
+        model = "llama-3.3-70b-versatile"
+    
+    ai_reply = call_llm(
+        provider=provider,
+        api_key=api_key,
+        model=model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": request.message}
@@ -183,8 +239,6 @@ async def chat(request: ChatRequest):
         temperature=0.7,
         max_tokens=300
     )
-    
-    ai_reply = response.choices[0].message.content
     
     return {
         "response": ai_reply,

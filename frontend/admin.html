@@ -124,6 +124,21 @@
       border-top: 1px solid #e2e8f0;
       margin: 24px 0;
     }
+
+    select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      font-size: 14px;
+      margin-bottom: 12px;
+      background: #f8fafc;
+      outline: none;
+      appearance: auto;
+    }
+    select:focus {
+      border-color: #0ea5e9;
+    }
   </style>
 </head>
 <body>
@@ -147,6 +162,21 @@
     <button onclick="uploadDocument()">Upload</button>
     <div class="message" id="uploadMessage"></div>
   </div>
+
+  <!-- BYOK Section (hidden until login) -->
+  <div class="section" id="byokSection" style="display:none;">
+  <div class="divider"></div>
+  <h2>🔑 LLM Configuration (BYOK)</h2>
+  <label for="llmProvider">Provider</label>
+  <select id="llmProvider" style="width:100%;padding:12px;margin-bottom:12px;border-radius:12px;border:1px solid #e2e8f0;">
+    <option value="groq">Groq (Llama 3.3)</option>
+    <option value="openai">OpenAI (GPT-4o-mini)</option>
+  </select>
+  <input type="password" id="llmApiKey" placeholder="Your API Key (encrypted on save)">
+  <button onclick="saveByokConfig()">Save Configuration</button>
+  <div class="message" id="byokMessage"></div>
+</div>
+
 
   <!-- Document List Section (hidden until login) -->
   <div class="section" id="docListSection" style="display:none;">
@@ -185,6 +215,7 @@ async function login() {
       document.getElementById("loginSection").style.display = "none";
       document.getElementById("uploadSection").style.display = "block";
       document.getElementById("docListSection").style.display = "block";
+      document.getElementById("byokSection").style.display = "block";
       loadDocuments();
     } else {
       alert(UI_TEXT.loginFailed + (data.detail || "Check username and password"));
@@ -266,6 +297,33 @@ async function clearDocuments() {
     }
   } catch (err) {
     alert(UI_TEXT.uploadFailed);
+  }
+}
+
+async function saveByokConfig() {
+  const provider = document.getElementById("llmProvider").value;
+  const apiKey = document.getElementById("llmApiKey").value;
+  if (!apiKey) {
+    showMessage("byokMessage", "API key cannot be empty", "error");
+    return;
+  }
+  try {
+    const res = await fetch(`${API_BASE}/admin/byok`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${authToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ llm_provider: provider, llm_api_key: apiKey })
+    });
+    if (res.ok) {
+      showMessage("byokMessage", "Configuration saved successfully", "success");
+    } else {
+      const data = await res.json();
+      showMessage("byokMessage", data.detail || "Save failed", "error");
+    }
+  } catch (err) {
+    showMessage("byokMessage", "Connection error", "error");
   }
 }
 </script>
